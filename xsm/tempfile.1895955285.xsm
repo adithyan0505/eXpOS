@@ -1,0 +1,11 @@
+MOV R0, 1
+	MOV R16, R0
+	PORT P1, R16
+	OUT
+	ADD R0, 1
+	MOV R1, 20
+	GE R1, R0
+	JZ R1, end
+	JMP loop
+	
+	HALT
