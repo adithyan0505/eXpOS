@@ -1,2 +1,17 @@
+// save current user SP
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+
+// set SP to begenning of kernel stack (UAPN*512-1)
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+
+// save the user context to the kernel stack
+backup;
+
 print "TIMER";
+
+// restore the user context from the kernel stack and set SP to the user SP
+restore;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+
+// switch to user mode
 ireturn;
