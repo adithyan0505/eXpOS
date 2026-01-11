@@ -1,0 +1,58 @@
+breakpoint;
+// IMP: do not use alias before backup
+// save current user SP
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+
+// set SP to begenning of kernel stack (UAPN*512-1)
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+
+// save the user context in kernel stack
+backup;
+
+// primitive scheduler code
+
+alias currPID R0;
+currPID = [SYSTEM_STATUS_TABLE + 1];
+alias process_table_entry R1;
+process_table_entry = PROCESS_TABLE + currPID * 16;
+// save KTPR, PTBR, PTLR of current process
+[process_table_entry + 12] = SP % 512;
+[process_table_entry + 14] = PTBR;
+[process_table_entry + 15] = PTLR;
+// set state as READY
+[process_table_entry + 4] = READY;
+
+alias newPID R2;
+if(currPID == 1) then
+	newPID = 0;
+else
+	newPID = 1;
+endif;
+
+alias new_process_table R3;
+new_process_table = PROCESS_TABLE + newPID * 16;
+// set back SP, PTBR, PTLR
+SP = [new_process_table + 11] * 512 + [new_process_table + 12];
+PTBR = [new_process_table + 14];
+PTLR = [new_process_table + 15];
+// update PID in SST
+[SYSTEM_STATUS_TABLE + 1] = newPID;
+
+if([new_process_table + 4] == CREATED) then
+	[new_process_table + 4] = RUNNING;
+	SP = [new_process_table + 13];
+	ireturn;
+endif;
+
+// update status
+[new_process_table + 4] = RUNNING; 
+
+// restore user context from kernel stack
+// IMP: R0, R1, R2, R3 are changed to prev value after restore
+// IMP: Do not use prev alias regs after restore
+restore;
+
+// switch to user stack, return to user mode
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+breakpoint;
+ireturn;
