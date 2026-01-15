@@ -1,0 +1,17 @@
+//set STATE of invoking process to TERMINATED
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 4] = TERMINATED;
+alias process_table_entry R1;
+process_table_entry = PROCESS_TABLE;
+alias pid R2;
+pid = 1;
+while(pid < 16) do
+	process_table_entry = process_table_entry + 16;
+	if([process_table_entry + 4] != TERMINATED) then
+		//invoke scheduler
+		call MOD_5;
+		//(control flow will never reach here)
+	endif;
+	pid = pid + 1;
+endwhile;
+//HALT if all process except IDLE are TERMINATED
+halt;
