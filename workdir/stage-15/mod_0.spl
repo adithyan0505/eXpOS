@@ -1,0 +1,44 @@
+alias funcNum R1;
+alias currPID R2;
+
+if(funcNum == 8) then
+	//busy wait
+	while([TERMINAL_STATUS_TABLE] == 1) do
+		//change STATE in PROCESS TABLE, save registers in use
+		[PROCESS_TABLE + currPID * 16 + 4] = WAIT_TERMINAL;
+		multipush(R1, R2);
+		//call scheduler
+		call MOD_5;
+		//restore registers (when this process scheduled again)
+		multipop(R1, R2);
+	endwhile;
+	//set STATUS, PID in Terminal Status Table
+	[TERMINAL_STATUS_TABLE] = 1;
+	[TERMINAL_STATUS_TABLE + 1] = currPID;
+	return;
+endif;
+
+if(funcNum == 9) then
+	if([TERMINAL_STATUS_TABLE + 1] != currPID) then
+		//process trying to release terminal without acquiring
+		R0 = -1;
+		return;
+	endif;
+	//set STATUS as 0 to indicate release	
+	[TERMINAL_STATUS_TABLE] = 0;
+	//update STATE of waiting processes
+	alias t R3;
+	t = 0;
+	alias process_table R4;
+	process_table = PROCESS_TABLE;
+	while(t < 16) do
+		if([process_table + 4] == WAIT_TERMINAL) then
+			[process_table + 4] = READY;
+		endif; 
+		process_table = process_table + 16;
+		t = t + 1;
+	endwhile;
+	//save return value, return to caller
+	R0 = 0;
+	return;
+endif;

@@ -1,0 +1,22 @@
+alias funcNum R1;
+alias currPID R2;
+
+if(funcNum == 3) then
+	//TERMINAL WRITE
+	alias word R3;
+	//aquire terminal
+	multipush(R1,R2,R3);
+	funcNum = 8;
+	call MOD_0;
+	multipop(R1,R2,R3);
+	//print
+	print word;
+	//release terminal
+	multipush(R1,R2,R3);
+	funcNum = 9;
+	call MOD_0;
+	multipop(R1,R2,R3);
+	return;
+else
+	return;
+endif;

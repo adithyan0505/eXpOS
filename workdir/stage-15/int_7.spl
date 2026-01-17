@@ -1,0 +1,40 @@
+// set MODE FLAG in process table as system call number
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 9] = 5;
+
+alias userSP R0;
+userSP = SP;
+
+// switch from user stack to kernel stack
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 13] = SP;
+SP = [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 11] * 512 - 1;
+
+alias fileDescriptor R1;
+fileDescriptor = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+alias RetValPhysicalAddr R2;
+RetValPhysicalAddr = ([PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512);
+
+if (fileDescriptor != -2) then
+	// argument 1 not valid
+	[RetValPhysicalAddr] = -1;
+else
+	// argument 1 valid
+	alias word R3;
+	word = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+	// save registers currently in use
+	multipush(R0, R1, R2, R3);
+	// set arguments for Terminal Write function call
+	R1 = 3; R2 = [SYSTEM_STATUS_TABLE + 1]; R3 = word;
+	// invoke Device Manager Module
+	call MOD_4;
+	// restore registers 
+	multipop(R0, R1, R2, R3);
+	[RetValPhysicalAddr] = 0;
+endif;
+
+// switch back to user stack
+SP = userSP;
+// reset MODE FLAG to user mode
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 9] = 0;
+
+ireturn;
