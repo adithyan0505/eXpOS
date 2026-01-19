@@ -1,0 +1,39 @@
+alias funcNum R1;
+alias currPID R2;
+//TERMINAL WRITE
+if(funcNum == 3) then
+	alias word R3;
+	//aquire terminal
+	multipush(R1,R2,R3);
+	funcNum = 8;
+	call MOD_0;
+	multipop(R1,R2,R3);
+	//print
+	print word;
+	//release terminal
+	multipush(R1,R2,R3);
+	funcNum = 9;
+	call MOD_0;
+	multipop(R1,R2,R3);
+	return;
+endif;
+//TERMINAL READ
+if(funcNum == 4) then
+	alias waddr R3;
+	//aquire terminal
+	multipush(R1,R2,R3);
+	funcNum = 8;
+	call MOD_0;
+	multipop(R1,R2,R3);
+	//read, change state of current process, call scheduler
+	read;
+	[PROCESS_TABLE + currPID * 16 + 4] = WAIT_TERMINAL;
+	multipush(R1,R2,R3);
+	call MOD_5;
+	multipop(R1,R2,R3);
+	//convert logical word address into physical
+	waddr = [PTBR + 2 * waddr / 512] * 512 + (waddr % 512);
+	//store value in input buffer to waddr location
+	[waddr] = [PROCESS_TABLE + currPID * 16 + 8];
+	return;	
+endif;

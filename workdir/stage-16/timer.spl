@@ -1,0 +1,38 @@
+// IMP: do not use alias before backup
+// save current user SP
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+
+// set SP to begenning of kernel stack (UAPN*512-1)
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+
+// save the user context in kernel stack
+backup;
+
+// change state of current process to READY
+alias currPID R0;
+currPID = [SYSTEM_STATUS_TABLE + 1];
+alias process_table_entry R1;
+process_table_entry = PROCESS_TABLE + currPID * 16;
+[process_table_entry + 4] = READY;
+
+// increment TICK of each process in PROCESS TABLE
+alias t R2;
+t = 0;
+process_table_entry = PROCESS_TABLE;
+while(t < 16) do
+	[process_table_entry] = [process_table_entry] + 1;
+	process_table_entry = process_table_entry + 16;
+	t = t + 1;
+endwhile;
+
+// invoke scheduler module
+call MOD_5;
+
+// restore user context from kernel stack
+// IMP: Do not use prev alias regs after restore
+restore;
+
+// switch to user stack, set MODE_FLAG, return to user mode
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+ireturn;

@@ -1,0 +1,34 @@
+//set MODE flag as system call number for read
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 7;
+
+alias userSP R0;
+userSP = SP;
+
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+
+alias fd R1;
+fd = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+if(fd != -1) then
+	//store -1 as return value in user stack
+	[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+else
+	alias waddr R3;
+	waddr = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+	//push regs into stack
+	multipush(R0,R1,R3);
+	//store args in regs for module call
+	R1 = 4;
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	//R3 already has word address
+	call MOD_4;
+	//restore regs
+	multipop(R0,R1,R3);
+	//store 0 as return value in user stack
+	[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+endif;
+
+//reset MODE flag,SP,return to user mode 
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+ireturn;
