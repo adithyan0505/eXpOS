@@ -1,0 +1,94 @@
+alias userSP R0;
+userSP = SP;
+//save user stack, switch to kernel stack
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+//set MODE_FLAG to system call number of exec()
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 9;
+//get name of file from stack
+alias fileName R1;
+fileName = [[PTBR + 2 * (userSP-4) / 512] * 512 + ((userSP-4) % 512)];
+//search INODE TABLE (memory copy) for file
+alias idx R2;
+alias flag R3;
+idx = 0;
+flag = -1;
+while(idx < MAX_FILE_NUM) do
+	if(fileName == [INODE_TABLE + idx * 16 + 1]) then
+		if([INODE_TABLE + idx * 16] == EXEC) then
+			flag = 0;	
+			break;	
+		endif;
+	endif;
+	idx = idx + 1;
+endwhile;
+if(flag == -1) then
+	//file doesnt exist or not EXEC
+	//set return value as -1, return to user mode
+	[[PTBR + 2 * (userSP-1) / 512] * 512 + ((userSP-1) % 512)] = -1;
+	[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+	SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+	ireturn;
+endif;
+alias UAPN R4;
+UAPN = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11];
+//call Exit Process function in Process Manager Module
+multipush(R1,R2,R3,R4);
+R1 = 3; R2 = [SYSTEM_STATUS_TABLE + 1];
+call MOD_1;
+multipop(R1,R2,R3,R4);
+//reclaim deallocated User Area Page
+[MEMORY_FREE_LIST + UAPN] = [MEMORY_FREE_LIST + UAPN] + 1;
+[SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] - 1;
+//set SP, update STATE field, store INODE index
+alias PID R5;
+PID = [SYSTEM_STATUS_TABLE + 1];
+SP = UAPN * 512 - 1;
+[PROCESS_TABLE + PID * 16 + 4] = RUNNING;
+[PROCESS_TABLE + PID * 16 + 7] = idx;
+//allocate new pages, setup Page Table entires of new process
+//library
+[PTBR + 0] = 63;
+[PTBR + 1] = "0100";
+[PTBR + 2] = 64;
+[PTBR + 3] = "0100";
+//Heap
+multipush(R1,R2,R3,R4,R5);
+R1 = 1;
+call MOD_2;
+[PTBR + 4] = R0;
+[PTBR + 5] = "0110";
+call MOD_2;
+[PTBR + 6] = R0;
+[PTBR + 7] = "0110";
+//Stack
+call MOD_2;
+[PTBR + 16] = R0;
+[PTBR + 17] = "0110";
+call MOD_2;
+[PTBR + 18] = R0;
+[PTBR + 19] = "0110";
+multipop(R1,R2,R3,R4,R5);
+//Code
+alias t R6;
+t = 0;
+while(t < 4) do
+	if([INODE_TABLE + idx * 16 + t + 8] != -1) then
+		multipush(R1,R2,R3,R4,R5,R6);
+		//call GET_FREE_PAGE
+		R1 = 1;
+		call MOD_2;	
+		multipop(R1,R2,R3,R4,R5,R6);	
+		[PTBR + 8 + t * 2] = R0;
+		[PTBR + 9 + t * 2] = "0100";
+		//load code blocks from disk to memory
+		loadi(R0,[INODE_TABLE + idx * 16 + t + 8]); 
+	endif;
+	t = t + 1;
+endwhile;
+//store entry point IP on top of user stack
+[[PTBR + 16] * 512] = [[PTBR + 8] * 512 + 1];
+//change SP, MODE_FLAG, return to user mode
+SP = 8 * 512;
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+ireturn;
