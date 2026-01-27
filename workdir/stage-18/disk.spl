@@ -1,0 +1,18 @@
+//switch to kernel stack, backup register context
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 13] = SP;
+SP = [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 11] * 512 - 1;
+backup;
+//set STATUS field in DST, wake-up processes in WAIT_DISK
+[DISK_STATUS_TABLE] = 0;
+alias i R1;
+i = 0;
+while(i < 16) do
+	if([PROCESS_TABLE + i * 16 + 4] == WAIT_DISK) then
+		[PROCESS_TABLE + i * 16 + 4] = READY;
+	endif;
+	i = i + 1;
+endwhile;
+//restore context, switch to user mode
+restore;
+SP = [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 13];
+ireturn;
