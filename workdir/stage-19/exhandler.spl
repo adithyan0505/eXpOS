@@ -1,0 +1,66 @@
+//set MODE_FLAG to indicate Exception Handler
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 9] = -1;
+//switch to kernel stack, backup reg context, push EIP onto stack
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 13] = SP;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 11] * 512 - 1;
+backup;
+multipush(EIP);
+
+//if not page fault or user stack is full
+if((EC != 0) || ([PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 13] == PTLR*512-1)) then
+	if([PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 13] == PTLR*512-1) then
+		print "User Stack full";
+	else
+		if(EC == 1) then
+			print "Illegal instr.";
+		endif;
+		if(EC == 2) then
+			print "Illegal mem acc.";
+		endif;
+		if(EC == 3) then
+			print "Arith. excep.";
+		endif;
+	endif;
+	//invoke EXIT PROCESS of MOD_1, MOD_5
+	R1 = 3; R2 = [SYSTEM_STATUS_TABLE + 1];
+	call PROCESS_MANAGER;
+	call SCHEDULER;
+endif;
+
+//exception due to page pault
+if((EPN != 2) && (EPN != 3)) then
+	//page fault due to code page
+	alias blockNum R1;
+	alias faultPage R2;
+	faultPage = EPN;	
+	blockNum = [DISK_MAP_TABLE + [SYSTEM_STATUS_TABLE + 1] * 10 + faultPage];
+	//invoke GET_CODE_PAGE of MOD_2
+	multipush(R1,R2); 
+	R2 = blockNum;
+	R1 = GET_CODE_PAGE;
+	call MEMORY_MANAGER;
+	multipop(R1,R2);
+	//set PAGE TABLE entires
+	[PTBR + faultPage * 2] = R0;
+	[PTBR + faultPage * 2 + 1] = "1100"; 
+else
+	//page fault due to heap page
+	//call GET_FREE_PAGE twice
+	R1 = 1;
+	call MEMORY_MANAGER;
+	[PTBR + 4] = R0;
+	[PTBR + 5] = "1110";
+	call MEMORY_MANAGER;
+	[PTBR + 6] = R0;
+	[PTBR + 7] = "1110";
+endif;
+
+//reset MODE_FLAG, pop EIP from stack, restore register context
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 9] = 0;
+multipop(EIP);
+restore;
+
+//change to user stack, increment SP, store EIP on top, return to user mode
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1] * 16) + 13] + 1;
+[[PTBR + 2 * SP / 512] * 512 + SP % 512] = EIP;
+ireturn;
