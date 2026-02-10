@@ -1,0 +1,144 @@
+//set MODE_FLAG, switch to kernel stack
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 8;
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1; 
+
+//get new PID for child process
+R1 = GET_PCB_ENTRY; 
+call PROCESS_MANAGER;
+
+if(R0 == -1) then
+    //PID not available
+    alias userSP R1;
+    userSP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+    [[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+    [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+alias currPID R1;
+alias childPID R2;
+currPID = [SYSTEM_STATUS_TABLE + 1];
+childPID = R0;
+if([PTBR + 4] == -1) then
+    //allocate heap page for parent
+    multipush(R1,R2);
+    R1 = GET_FREE_PAGE;
+    call MEMORY_MANAGER;
+    [PTBR + 4] = R0;
+    [PTBR + 5] = "0110";
+    call MEMORY_MANAGER;
+    [PTBR + 6] = R0;
+    [PTBR + 7] = "0110";
+    multipop(R1,R2);
+endif;
+//allocate user area, stack pages for child process
+multipush(R1,R2);
+R1 = GET_FREE_PAGE;
+call MEMORY_MANAGER;
+multipop(R1,R2);
+[PROCESS_TABLE + childPID * 16 + 11] = R0;
+
+multipush(R1,R2);
+R1 = GET_FREE_PAGE;
+call MEMORY_MANAGER;
+multipop(R1,R2);
+[PAGE_TABLE_BASE + childPID * 20 + 16] = R0;
+[PAGE_TABLE_BASE + childPID * 20 + 17] = "0110";
+
+multipush(R1,R2);
+R1 = GET_FREE_PAGE;
+call MEMORY_MANAGER;
+multipop(R1,R2);
+[PAGE_TABLE_BASE + childPID * 20 + 18] = R0;
+[PAGE_TABLE_BASE + childPID * 20 + 19] = "0110";
+
+//initialize process table of child process
+alias cProcessTab R9;
+alias pProcessTab R10;
+cProcessTab = PROCESS_TABLE + childPID * 16;
+pProcessTab = PROCESS_TABLE + currPID * 16;
+[cProcessTab + 3] = [pProcessTab + 3];
+[cProcessTab + 6] = [pProcessTab + 6];
+[cProcessTab + 10] =[pProcessTab + 10];
+[cProcessTab + 7] = [pProcessTab + 7];
+[cProcessTab + 13] =[pProcessTab + 13];
+[cProcessTab + 2] = [pProcessTab + 1];
+[cProcessTab + 4] = CREATED;
+[cProcessTab + 9] = 0;
+[cProcessTab + 12] = 0;
+[cProcessTab] = 0;
+
+//copy per-process resource table of parent in child
+alias parentRT R3;
+alias childRT R4;
+parentRT = [pProcessTab + 11] * 512 + RESOURCE_TABLE_OFFSET;
+childRT = [cProcessTab + 11] * 512 + RESOURCE_TABLE_OFFSET;
+alias i R5;
+while(i < 16) do
+    [childRT + i] = [parentRT + i];
+    i = i + 1;
+endwhile;
+
+//copy per-process disk map table of parent to child
+alias cDiskMapTab R11;
+alias pDiskMapTab R12;
+cDiskMapTab = DISK_MAP_TABLE + childPID * 10;
+pDiskMapTab = DISK_MAP_TABLE + currPID * 10;
+[cDiskMapTab + 0] = -1;
+[cDiskMapTab + 1] = -1;
+[cDiskMapTab + 2] = [pDiskMapTab + 2];
+[cDiskMapTab + 3] = [pDiskMapTab + 3];
+[cDiskMapTab + 4] = [pDiskMapTab + 4];
+[cDiskMapTab + 5] = [pDiskMapTab + 5];
+[cDiskMapTab + 6] = [pDiskMapTab + 6];
+[cDiskMapTab + 7] = [pDiskMapTab + 7];
+[cDiskMapTab + 8] = -1;
+[cDiskMapTab + 9] = -1;
+
+//initialize page table of child process
+alias cPageTab R11;
+alias pPageTab R12; 
+cPageTab = PAGE_TABLE_BASE + childPID * 20;
+pPageTab = PAGE_TABLE_BASE + currPID * 20;
+i = 0;
+while(i <= 7) do
+    [cPageTab + 2 * i] = [pPageTab + 2 * i];
+    [cPageTab + 2 * i + 1] = [pPageTab + 2 * i + 1];
+    [MEMORY_FREE_LIST + [cPageTab + 2 * i]] = [MEMORY_FREE_LIST + [cPageTab + 2 * i]] + 1;
+    i = i + 1;
+endwhile;
+
+//copy contents of the user stack from parent to child
+i = 0;
+alias childStackPage R6;
+alias parentStackPage R7;
+childStackPage = [cPageTab + 16] * 512;
+parentStackPage = [pPageTab + 16] * 512;
+while(i < 512) do
+    [childStackPage + i] = [parentStackPage + i];
+    i = i + 1;
+endwhile;
+
+i = 0;
+childStackPage = [cPageTab + 18] * 512;
+parentStackPage = [pPageTab + 18] * 512;
+while(i < 512) do
+    [childStackPage + i] = [parentStackPage + i];
+    i = i + 1;
+endwhile;
+
+//store the value in the BP register on top of the kernel stack of child process.
+[cProcessTab + 12] = [cProcessTab + 12] + 1;
+[[cProcessTab + 11] * 512 + [cProcessTab + 12]] = BP;
+
+//set up return values in the user stacks of the parent and the child processes
+alias userSP R8;
+userSP = [pProcessTab + 13];
+[[pPageTab + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = childPID;
+[[cPageTab + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+//reset MODE_FLAG, return to user mode
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+SP = userSP;
+ireturn;

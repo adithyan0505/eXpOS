@@ -1,0 +1,53 @@
+alias currPID R1;
+currPID = [SYSTEM_STATUS_TABLE + 1];
+//push BP onto kernel stack of current process
+multipush(BP);
+//get current PROCESS TABLE entry
+alias process_table_entry R2;
+process_table_entry = PROCESS_TABLE + currPID * 16;
+//save KPTR,PTBR,PTLR in PROCESS TABLE of current process
+[process_table_entry + 12] = SP % 512;
+[process_table_entry + 14] = PTBR;
+[process_table_entry + 15] = PTLR;
+//Round Robin Scheduling Logic
+alias newPID R3;
+alias process_state R4;
+newPID = -1;
+currPID = currPID + 1;
+while(currPID < 16) do
+	process_table_entry = process_table_entry + 16;
+	process_state = [process_table_entry + 4];
+	if((process_state == CREATED) || (process_state == READY)) then
+		newPID = currPID;
+		break;
+	endif;
+	currPID = currPID + 1;
+endwhile;
+if(newPID == -1) then
+	//select IDLE as new process
+	newPID = 0;
+endif; 
+//set SP of new process to its kernel stack
+process_table_entry = PROCESS_TABLE + newPID * 16;
+SP = [process_table_entry + 11] * 512 + [process_table_entry + 12];
+//restore PTBR, PTLR, set PID in SYSTEM STATUS TABLE
+PTBR = [process_table_entry + 14];
+PTLR = [process_table_entry + 15];
+[SYSTEM_STATUS_TABLE + 1] = newPID;
+
+if([process_table_entry + 4] == CREATED) then
+	//set BP from top of kernel stack
+	multipop(BP);
+	//set SP to user stack, STATE, MODE_FLAG
+	SP = [process_table_entry + 13];
+	[process_table_entry + 4] = RUNNING;
+	[process_table_entry + 9] = 0;
+	//switch to user mode
+	ireturn;	
+endif;
+
+[process_table_entry + 4] = RUNNING;
+//restore BP from top of kernel stack
+multipop(BP);
+//return to caller: TIMER ISR (or a kernel module)
+return;
