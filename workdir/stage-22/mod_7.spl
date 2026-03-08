@@ -149,7 +149,7 @@ while(t < 83) do
 	[MEMORY_FREE_LIST + t] = 1;
 	t = t + 1;
 endwhile;
-while(t < MAX_MEM_PAGE) do
+while(t < NUM_MEM_PAGES) do
 	[MEMORY_FREE_LIST + t] = 0;
 	//increment MEM_FREE_COUNT
 	[SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] + 1;
