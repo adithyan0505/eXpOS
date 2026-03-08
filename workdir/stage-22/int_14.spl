@@ -1,0 +1,81 @@
+alias sysCallNum R1;
+alias userSP R2;
+userSP = SP;
+sysCallNum = [[PTBR + 2 * (userSP - 5) / 512] * 512 + (userSP - 5) % 512];
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 13] = SP;
+SP = [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 11] * 512 - 1;
+
+if(sysCallNum == 19) then
+    //SemLock
+    alias procTabIdx R3;
+    procTabIdx = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+    [procTabIdx + 9] = 19;
+
+    alias semId R4;
+    semId = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    alias rtAddr R5;
+    rtAddr = [procTabIdx + 11] * 512 + RESOURCE_TABLE_OFFSET + 2 * semId;
+    if((semId < 0) || (semId > 7) || ([rtAddr] != SEMAPHORE)) then
+        [[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+        [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    while(([SEMAPHORE_TABLE + [rtAddr + 1] * 4] != -1) && ([SEMAPHORE_TABLE + [rtAddr + 1] * 4] != [SYSTEM_STATUS_TABLE + 1])) do
+        [procTabIdx + 4] = WAIT_SEMAPHORE;
+        [procTabIdx + 5] = [rtAddr + 1];
+        multipush(R1,R2,R3,R4,R5);
+        call SCHEDULER;
+        multipop(R1,R2,R3,R4,R5);
+    endwhile;
+
+    [SEMAPHORE_TABLE + [rtAddr + 1] * 4] = [SYSTEM_STATUS_TABLE + 1];
+
+    [[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+    [procTabIdx + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+if(sysCallNum == 20) then
+    //SemUnlock
+    alias procTabIdx R3;
+    procTabIdx = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+    [procTabIdx + 9] = 20;
+
+    alias semId R4;
+    semId = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    alias rtAddr R5;
+    rtAddr = [procTabIdx + 11] * 512 + RESOURCE_TABLE_OFFSET + 2 * semId;
+    if((semId < 0) || (semId > 7) || ([rtAddr] != SEMAPHORE)) then
+        [[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+        [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    if([SEMAPHORE_TABLE + [rtAddr + 1] * 4] != [SYSTEM_STATUS_TABLE + 1]) then
+        [[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -2;
+        [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    [SEMAPHORE_TABLE + [rtAddr + 1] * 4] = -1;
+    alias idx R4;
+    idx = 0;
+    while(idx < MAX_PROC_NUM) do
+        if([PROCESS_TABLE + idx * 16 + 4] == WAIT_SEMAPHORE) then
+            if([PROCESS_TABLE + idx * 16 + 5] == [rtAddr + 1]) then
+                [PROCESS_TABLE + idx * 16 + 4] = READY;
+            endif;
+        endif;
+        idx = idx + 1;
+    endwhile;
+
+    [[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+    [procTabIdx + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;

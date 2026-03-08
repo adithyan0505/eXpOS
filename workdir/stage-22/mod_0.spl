@@ -1,0 +1,105 @@
+//RESOURCE MANAGER MODULE
+alias funcNum R1;
+
+if(funcNum == ACQUIRE_TERMINAL) then
+	alias currPID R2;
+	//busy wait
+	while([TERMINAL_STATUS_TABLE] == 1) do
+		//change STATE in PROCESS TABLE, save registers in use
+		[PROCESS_TABLE + currPID * 16 + 4] = WAIT_TERMINAL;
+		multipush(R1, R2);
+		//call scheduler
+		call MOD_5;
+		//restore registers (when this process scheduled again)
+		multipop(R1, R2);
+	endwhile;
+	//set STATUS, PID in Terminal Status Table
+	[TERMINAL_STATUS_TABLE] = 1;
+	[TERMINAL_STATUS_TABLE + 1] = currPID;
+	return;
+endif;
+
+if(funcNum == RELEASE_TERMINAL) then
+	alias currPID R2;
+	if([TERMINAL_STATUS_TABLE + 1] != currPID) then
+		//process trying to release terminal without acquiring
+		R0 = -1;
+		return;
+	endif;
+	//set STATUS as 0 to indicate release	
+	[TERMINAL_STATUS_TABLE] = 0;
+	//update STATE of waiting processes
+	alias t R3;
+	t = 0;
+	alias process_table R4;
+	process_table = PROCESS_TABLE;
+	while(t < 16) do
+		if([process_table + 4] == WAIT_TERMINAL) then
+			[process_table + 4] = READY;
+		endif; 
+		process_table = process_table + 16;
+		t = t + 1;
+	endwhile;
+	//save return value, return to caller
+	R0 = 0;
+	return;
+endif;
+
+if(funcNum == ACQUIRE_DISK) then
+	alias currPID R2;
+	while([DISK_STATUS_TABLE] == 1) do
+		//while disk is busy, change state, invoke scheduler
+		[PROCESS_TABLE + currPID * 16 + 4] = WAIT_DISK;
+		multipush(R1,R2);
+		call MOD_5;
+		multipop(R1,R2);
+	endwhile;
+	//lock disk by setting status, pid in DST
+	[DISK_STATUS_TABLE] = 1;
+	[DISK_STATUS_TABLE + 4] = currPID;
+	return;		
+endif;
+
+if(funcNum == ACQUIRE_SEMAPHORE) then
+	alias currPID R2;
+	alias stIdx R3;
+	stIdx = 0;
+	while(stIdx < MAX_SEM_COUNT) do 
+		if([SEMAPHORE_TABLE + stIdx * 4 + 1] == 0) then
+			break;
+		endif;
+		stIdx = stIdx + 1;
+	endwhile;
+	if(stIdx == MAX_SEM_COUNT) then
+		R0 = -1;
+		return;
+	endif;
+	[SEMAPHORE_TABLE + stIdx * 4 + 1] = 1;
+	[SEMAPHORE_TABLE + stIdx * 4] = -1;
+	R0 = stIdx;
+	return;
+endif;
+
+if(funcNum == RELEASE_SEMAPHORE) then
+	alias semIdx R2;
+	alias currPID R3;
+	alias semTab R4;
+	semTab = SEMAPHORE_TABLE + semIdx * 4;
+	if([semTab] == currPID) then
+		[semTab] = -1;
+		alias idx R5;
+		idx = 0;
+		while(idx < MAX_PROC_NUM) do
+			if([PROCESS_TABLE + idx * 16 + 4] == WAIT_SEMAPHORE) then
+				if([PROCESS_TABLE + idx * 16 + 5] == semIdx) then
+					[PROCESS_TABLE + idx * 16 + 4] = READY;
+				endif;
+			endif;
+			idx = idx + 1;
+		endwhile;
+		[semTab + 1] = [semTab + 1] - 1;
+		R0 = 0;
+	else
+		R0 = -1;
+	endif;
+endif;
