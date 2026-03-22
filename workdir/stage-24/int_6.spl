@@ -1,0 +1,91 @@
+//set MODE flag as system call number for read
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 7;
+
+alias userSP R1;
+userSP = SP;
+
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+
+alias fd R2;
+fd = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+if(fd == -1) then
+	alias waddr R3;
+	waddr = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+	//push regs into stack
+	multipush(R1,R2,R3);
+	//store args in regs for module call
+	R1 = 4;
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	//R3 already has word address
+	call MOD_4;
+	//restore regs
+	multipop(R1,R2,R3);
+	//store 0 as return value in user stack
+	[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+else
+	if((fd > 7) || (fd < 0)) then
+		[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+	else
+		alias rtEntry R3;
+		rtEntry = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 + RESOURCE_TABLE_OFFSET;
+		if([rtEntry + fd * 2] != FILE) then
+			[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+		else
+			alias oftIdx R4;
+			oftIdx = [rtEntry + fd * 2 + 1];
+			alias inodeIdx R5;
+			inodeIdx = [OPEN_FILE_TABLE + oftIdx * 4];
+
+			multipush(R1,R2,R3,R4,R5);
+			R1 = ACQUIRE_INODE; R2 = inodeIdx; R3 = [SYSTEM_STATUS_TABLE + 1];
+			call RESOURCE_MANAGER;
+			multipop(R1,R2,R3,R4,R5);
+			if(R0 == -1) then
+				[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -1;
+			else
+				alias lseek R6;
+				lseek = [OPEN_FILE_TABLE + oftIdx * 4 + 2];
+				alias waddr R7;
+				waddr = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+
+				if(inodeIdx == INODE_ROOT) then
+					if(lseek == 480) then
+						[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -2;
+					else
+						waddr = [PTBR + 2 * waddr / 512] * 512 + (waddr % 512);
+						[waddr] = [ROOT_FILE + lseek];
+						[OPEN_FILE_TABLE + oftIdx * 4 + 2] = lseek + 1;
+						[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+					endif;
+				else
+					if(lseek == [INODE_TABLE + inodeIdx * 16 + 2]) then
+						[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = -2;
+					else
+						alias dblk R8;
+						dblk = [INODE_TABLE + inodeIdx * 16 + 8 + lseek / 512];
+						alias offset R9;
+						offset = lseek % 512;
+
+						multipush(R1,R2,R3,R4,R5,R6,R7,R8,R9);
+						R1 = BUFFERED_READ; R2 = dblk; R3 = offset; R4 = waddr;
+						call FILE_MANAGER;
+						multipop(R1,R2,R3,R4,R5,R6,R7,R8,R9);
+
+						[OPEN_FILE_TABLE + oftIdx * 4 + 2] = lseek + 1;
+						[[PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512] = 0;
+					endif;
+				endif;
+			endif;
+			multipush(R1,R2,R3,R4,R5);
+			R1 = RELEASE_INODE; R2 = inodeIdx; R3 = [SYSTEM_STATUS_TABLE + 1];
+			call RESOURCE_MANAGER;
+			multipop(R1,R2,R3,R4,R5);
+		endif;
+	endif;
+endif;
+
+//reset MODE flag,SP,return to user mode 
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+ireturn;
