@@ -1,0 +1,171 @@
+alias sysCallNum R1;
+alias userSP R2;
+userSP = SP;
+sysCallNum = [[PTBR + 2 * (userSP - 5) / 512] * 512 + (userSP - 5) % 512];
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 13] = SP;
+SP = [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 11] * 512 - 1;
+
+if(sysCallNum == 2) then
+    //open file
+    alias procTabIdx R3;
+    procTabIdx = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+    [procTabIdx + 9] = 2;
+    alias retValLoc R4;
+    retValLoc = [PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512;
+    alias fileName R5;
+    fileName = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+    alias fd R6;
+    fd = 0;
+    alias pprt R7;
+    pprt = [procTabIdx + 11] * 512 + RESOURCE_TABLE_OFFSET;
+    while(fd < 8) do 
+        if([pprt + fd * 2] == -1) then
+            break;
+        endif;
+        fd = fd + 1;
+    endwhile;
+    if(fd == 8) then
+        [retValLoc] = -3;
+        [procTabIdx + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    multipush(R1,R2,R3,R4,R5,R6,R7);
+    R1 = OPEN; R2 = fileName;
+    call FILE_MANAGER;
+    multipop(R1,R2,R3,R4,R5,R6,R7);
+    if(R0 < 0) then
+        [retValLoc] = R0;
+        [procTabIdx + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    [pprt + fd * 2] = FILE;
+    [pprt + fd * 2 + 1] = R0;
+
+    [retValLoc] = fd;
+    [procTabIdx + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+if(sysCallNum == 3) then
+    //close file
+    alias procTabIdx R3;
+    procTabIdx = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+    [procTabIdx + 9] = 3;
+    alias retValLoc R4;
+    retValLoc = [PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512;
+    alias fd R5;
+    fd = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+    if((fd > 7) || (fd < 0)) then
+        [retValLoc] = -1;
+        [procTabIdx + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias rtEntry R6;
+    rtEntry = [procTabIdx + 11] * 512 + RESOURCE_TABLE_OFFSET + fd * 2;
+    if(([rtEntry] == -1) || [rtEntry + 1] != FILE) then
+        [retValLoc] = -1;
+        [procTabIdx + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    multipush(R1,R2,R3,R4,R5,R6);
+    R1 = CLOSE; R2 = [rtEntry + 1];
+    call FILE_MANAGER;
+    multipop(R1,R2,R3,R4,R5,R6);
+
+    [rtEntry] = -1;
+
+    [retValLoc] = 0;
+    [procTabIdx + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+if(sysCallNum == 6) then
+    //seek
+    alias fd R3;
+    alias offset R4;
+    fd = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    offset = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+    alias retLoc R5;
+    retLoc = [PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512;
+    alias procTab R6;
+    procTab = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+    [procTab + 9] = 6; 
+
+    if((fd < 0) || (fd > 7)) then
+        [retLoc] = -1;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias rtAddr R7;
+    rtAddr = [procTab + 11] * 512 + RESOURCE_TABLE_OFFSET + 2 * fd;
+    if([rtAddr] != FILE) then
+        [retLoc] = -1;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias oftIdx R8;
+    oftIdx = [rtAddr + 1];
+    alias inodeIdx R9;
+    inodeIdx = [OPEN_FILE_TABLE + oftIdx * 4];
+
+    multipush(R1,R2,R3,R4,R5,R6,R7,R8,R9);
+    R1 = ACQUIRE_INODE; R2 = inodeIdx; R3 = [SYSTEM_STATUS_TABLE + 1];
+    call RESOURCE_MANAGER; 
+    multipop(R1,R2,R3,R4,R5,R6,R7,R8,R9);
+    if(R0 == -1) then
+        [retLoc] = -1;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;  
+
+    alias lseek R10;
+    lseek = [OPEN_FILE_TABLE + oftIdx * 4 + 2];
+    alias fsize R11;
+    fsize = [INODE_TABLE + inodeIdx * 16 + 2];
+    if(lseek + offset < 0) then
+        multipush(R1,R2,R3,R4,R5,R6);
+        R1 = RELEASE_INODE; R2 = inodeIdx; R3 = [SYSTEM_STATUS_TABLE + 1];
+        call RESOURCE_MANAGER;
+        multipop(R1,R2,R3,R4,R5,R6);
+        [retLoc] = -2;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    if(offset == 0) then
+        [OPEN_FILE_TABLE + oftIdx * 4 + 2] = 0;
+    else
+        if(lseek + offset > fsize) then
+            [OPEN_FILE_TABLE + oftIdx * 4 + 2] = fsize;
+        else
+            [OPEN_FILE_TABLE + oftIdx * 4 + 2] = lseek + offset;
+        endif;
+    endif;
+
+    multipush(R1,R2,R3,R4,R5,R6);
+    R1 = RELEASE_INODE; R2 = inodeIdx; R3 = [SYSTEM_STATUS_TABLE + 1];
+    call RESOURCE_MANAGER;
+    multipop(R1,R2,R3,R4,R5,R6);
+    [retLoc] = 0;
+    [procTab + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
