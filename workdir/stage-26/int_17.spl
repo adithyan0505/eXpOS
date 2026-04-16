@@ -1,0 +1,63 @@
+alias procTab R1;
+alias userSP R2;
+userSP = SP;
+procTab = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+[procTab + 13] = SP;
+SP = [procTab + 11] * 512 - 1;
+[procTab + 9] = 27;
+alias retLoc R3;
+retLoc = ([PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512);
+
+if([SYSTEM_STATUS_TABLE + 1] != LOGIN_PROCESS) then
+    //perm denied
+    [retLoc] = -2;
+    [procTab + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+alias uid R4;
+alias uname R5;
+uid = 1;
+while(uid < MAX_USER_NUM) do 
+    uname = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    if([USER_TABLE + uid * 2] == uname) then
+        break;
+    endif;
+    uid = uid + 1;
+endwhile;
+if(uid == MAX_USER_NUM) then
+    //invalid uname
+    [retLoc] = -1;
+    [procTab + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+alias passwd R6;
+passwd = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+encrypt passwd;
+if([USER_TABLE + uid * 2 + 1] != passwd) then
+    //invalid passwd
+    [retLoc] = -1;
+    [procTab + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+[PROCESS_TABLE + SHELL_PROCESS * 16 + 4] = CREATED;
+[PROCESS_TABLE + SHELL_PROCESS * 16 + 3] = uid;
+
+[procTab + 4] = WAIT_PROCESS;
+[procTab + 5] = SHELL_PROCESS;
+
+[SYSTEM_STATUS_TABLE] = uid;
+
+multipush(R1,R2,R3);
+call SCHEDULER;
+multipop(R1,R2,R3);
+
+[retLoc] = 0;
+[procTab + 9] = 0;
+SP = userSP;
+ireturn;

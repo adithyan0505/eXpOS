@@ -17,28 +17,29 @@ if(sysCallNum == 1) then
     perm = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
 
     alias inodeIdx R6;
-    inodeIdx = 1;
+    inodeIdx = 0;
     alias retValLoc R7;
     retValLoc = [PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512;
 
     while(inodeIdx < MAX_FILE_NUM) do 
-        if([INODE_TABLE + inodeIdx * 16 + 1] == -1) then
-            break;
-        endif;
         if([INODE_TABLE + inodeIdx * 16 + 1] == fileName) then
-            inodeIdx = -1;
+            [retValLoc] = 0;
+            [procTabIdx + 9] = 0;
+            SP = userSP;
+            ireturn;
+        endif;
+        inodeIdx = inodeIdx + 1;
+    endwhile;
+
+    inodeIdx = 0;
+    while(inodeIdx < MAX_FILE_NUM) do 
+        if([INODE_TABLE + inodeIdx * 16 + 1] == -1) then
             break;
         endif;
         inodeIdx = inodeIdx + 1;
     endwhile;
     if(inodeIdx == MAX_FILE_NUM) then
         [retValLoc] = -1;
-        [procTabIdx + 9] = 0;
-        SP = userSP;
-        ireturn;
-    endif;
-    if(inodeIdx == -1) then
-        [retValLoc] = 0;
         [procTabIdx + 9] = 0;
         SP = userSP;
         ireturn;

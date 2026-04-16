@@ -1,0 +1,198 @@
+alias sysCallNum R1;
+alias userSP R2;
+userSP = SP;
+sysCallNum = [[PTBR + 2 * (userSP - 5) / 512] * 512 + (userSP - 5) % 512];
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 13] = SP;
+SP = [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 11] * 512 - 1;
+alias procTab R3;
+procTab = PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16;
+alias retLoc R7;
+retLoc = ([PTBR + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512);
+
+if(sysCallNum == INT_NEWUSR) then
+    alias uname R4;
+    alias passwd R5;
+    uname = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    passwd = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+
+    [procTab + 9] = INT_NEWUSR;
+    
+    if(([SYSTEM_STATUS_TABLE] != ROOT) || ([SYSTEM_STATUS_TABLE + 1] != SHELL_PROCESS)) then
+        //perm denied
+        [retLoc] = -2;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias uid R6;
+    uid = 0;
+    while(uid < MAX_USER_NUM) do
+        if([USER_TABLE + uid * 2] == uname) then
+            //user already exists
+            [retLoc] = -1;
+            [procTab + 9] = 0;
+            SP = userSP;
+            ireturn;
+        endif;
+        uid = uid + 1;
+    endwhile;
+    uid = 0;
+    while(uid < MAX_USER_NUM) do
+        if([USER_TABLE + uid * 2] == -1) then
+            break;
+        endif;
+        uid = uid + 1;
+    endwhile;
+    if(uid == MAX_USER_NUM) then
+        //max number of users
+        [retLoc] = -3;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    encrypt passwd;
+    [USER_TABLE + uid * 2] = uname;
+    [USER_TABLE + uid * 2 + 1] = passwd;
+endif;
+
+if(sysCallNum == INT_REMUSR) then
+    alias uname R4;
+    uname = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+    [procTab + 9] = INT_REMUSR;
+
+    if(([SYSTEM_STATUS_TABLE] != ROOT) || ([SYSTEM_STATUS_TABLE + 1] != SHELL_PROCESS) || (uname == "root") || (uname == "kernel")) then
+        //perm denied
+        [retLoc] = -2;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias uid R5;
+    uid = 0;
+    while(uid < MAX_USER_NUM) do
+        if([USER_TABLE + uid * 2] == uname) then
+            break;
+        endif;
+        uid = uid + 1;
+    endwhile;
+    if(uid == MAX_USER_NUM) then
+        //user DNE
+        [retLoc] = -1;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias rfIdx R6;
+    rfIdx = 0;
+    while(rfIdx < MAX_FILE_NUM) do 
+        if(([ROOT_FILE + rfIdx * 8] != -1) && ([ROOT_FILE + rfIdx * 8 + 3] == uname)) then
+            //Undeleted files exist for the user
+            [retLoc] = -3;
+            [procTab + 9] = 0;
+            SP = userSP;
+            ireturn;
+        endif;
+        rfIdx = rfIdx + 1;
+    endwhile;
+
+    [USER_TABLE + uid * 2] = -1;
+    [USER_TABLE + uid * 2 + 1] = -1;
+endif;
+
+if(sysCallNum == INT_SETPWD) then
+    alias uname R4;
+    alias passwd R5;
+    uname = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    passwd = [[PTBR + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+
+    [procTab + 9] = INT_SETPWD;
+
+    if([SYSTEM_STATUS_TABLE + 1] != SHELL_PROCESS) then
+        //current process not shell - unauthorised
+        [retLoc] = -1;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    alias uid R6;
+    uid = 0;
+    while(uid < MAX_USER_NUM) do
+        if([USER_TABLE + uid * 2] == uname) then
+            break;
+        endif;
+        uid = uid + 1;
+    endwhile;
+    if(uid == MAX_USER_NUM) then
+        //user DNE
+        [retLoc] = -2;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    if([SYSTEM_STATUS_TABLE] != uid) then
+        if([SYSTEM_STATUS_TABLE] != ROOT) then
+            //unauthorised
+            [retLoc] = -1;
+            [procTab + 9] = 0;
+            SP = userSP;
+            ireturn;
+        endif;
+    endif;
+
+    encrypt passwd;
+    [USER_TABLE + uid * 2 + 1] = passwd;
+endif;
+
+if(sysCallNum == INT_GETUNAME) then
+    alias uid R4;
+    uid = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+    [procTab + 9] = INT_GETUNAME;
+
+    if((uid < 0) || (uid >= MAX_USER_NUM) || ([USER_TABLE + uid * 2] == -1)) then
+        [retLoc] = -1;
+        [procTab + 9] = 0;
+        SP = userSP;
+        ireturn;
+    endif;
+
+    [retLoc] = [USER_TABLE + uid * 2];
+    [procTab + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+if(sysCallNum == INT_GETUID) then
+    alias uname R4;
+    uname = [[PTBR + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+    [procTab + 9] = INT_GETUID;
+
+    alias uid R5;
+    uid = 0;
+    while(uid < MAX_USER_NUM) do
+        if([USER_TABLE + uid * 2] == uname) then
+            [retLoc] = uid;
+            [procTab + 9] = 0;
+            SP = userSP;
+            ireturn;
+        endif;
+        uid = uid + 1;
+    endwhile;
+    [retLoc] = -1;
+    [procTab + 9] = 0;
+    SP = userSP;
+    ireturn;
+endif;
+
+[retLoc] = 0;
+[procTab + 9] = 0;
+SP = userSP;
+ireturn;
