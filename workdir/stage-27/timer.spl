@@ -1,0 +1,84 @@
+// IMP: do not use alias before backup
+// save current user SP
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13] = SP;
+
+// set SP to begenning of kernel stack (UAPN*512-1)
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 11] * 512 - 1;
+
+// save the user context in kernel stack
+backup;
+
+if([SYSTEM_STATUS_TABLE + 5] != 0) then
+	//swapping initiated
+	if([SYSTEM_STATUS_TABLE + 1] == SWAPPER_DAEMON) then
+		if([SYSTEM_STATUS_TABLE + 5] == SWAP_OUT) then
+			R1 = SWAP_OUT; R2 = [SYSTEM_STATUS_TABLE + 1];
+			call PAGER_MODULE;
+		else
+			//paging status: SWAP_IN
+			R1 = SWAP_IN; R2 = [SYSTEM_STATUS_TABLE + 1];
+			call PAGER_MODULE;
+		endif;
+	//else
+		//current process: IDLE
+		//swapping ongoing but daemon blocked
+	endif;
+else
+	//swapping not ON
+	if([SYSTEM_STATUS_TABLE + 2] < MEM_LOW) then
+		//swap out to be invoked during next timer interrupt
+		[SYSTEM_STATUS_TABLE + 5] = SWAP_OUT;
+	else
+		if([SYSTEM_STATUS_TABLE + 4] > 0) then
+			//there are swapped out processes
+			if([SYSTEM_STATUS_TABLE + 2] > MEM_HIGH) then
+				//swap in to be invoked during next timer interrupt
+				[SYSTEM_STATUS_TABLE + 5] = SWAP_IN;
+			else
+				alias i R1;
+				i = 0;
+				while(i < MAX_PROC_NUM) do 
+					if([PROCESS_TABLE + i * 16 + 6] == 1) then
+						if([PROCESS_TABLE + i * 16] > MAX_TICK) then
+							//swap in to be invoked during next timer interrupt
+							[SYSTEM_STATUS_TABLE + 5] = SWAP_IN;
+							break;
+						endif;
+					endif;
+					i = i + 1;
+				endwhile;
+			endif;
+		endif;
+	endif;
+endif;
+
+// change state of current process to READY
+alias currPID R0;
+currPID = [SYSTEM_STATUS_TABLE + 1];
+alias process_table_entry R1;
+process_table_entry = PROCESS_TABLE + currPID * 16;
+[process_table_entry + 4] = READY;
+
+// increment TICK of each process in PROCESS TABLE
+alias t R2;
+t = 0;
+process_table_entry = PROCESS_TABLE;
+while(t < 16) do
+	if([process_table_entry + 4] != TERMINATED) then
+		[process_table_entry] = [process_table_entry] + 1;
+	endif;
+	process_table_entry = process_table_entry + 16;
+	t = t + 1;
+endwhile;
+
+// invoke scheduler module
+call MOD_5;
+
+// restore user context from kernel stack
+// IMP: Do not use prev alias regs after restore
+restore;
+
+// switch to user stack, set MODE_FLAG, return to user mode
+SP = [PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 13];
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE + 1] * 16) + 9] = 0;
+ireturn;

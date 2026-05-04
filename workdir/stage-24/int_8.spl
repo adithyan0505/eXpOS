@@ -116,7 +116,9 @@ i = 0;
 while(i <= 7) do
     [cPageTab + 2 * i] = [pPageTab + 2 * i];
     [cPageTab + 2 * i + 1] = [pPageTab + 2 * i + 1];
-    [MEMORY_FREE_LIST + [cPageTab + 2 * i]] = [MEMORY_FREE_LIST + [cPageTab + 2 * i]] + 1;
+    if([cPageTab + 2 * i] != -1) then
+        [MEMORY_FREE_LIST + [cPageTab + 2 * i]] = [MEMORY_FREE_LIST + [cPageTab + 2 * i]] + 1;
+    endif;
     i = i + 1;
 endwhile;
 

@@ -71,7 +71,7 @@ if(sysCallNum == 3) then
 
     alias rtEntry R6;
     rtEntry = [procTabIdx + 11] * 512 + RESOURCE_TABLE_OFFSET + fd * 2;
-    if(([rtEntry] == -1) || [rtEntry + 1] != FILE) then
+    if([rtEntry] != FILE) then
         [retValLoc] = -1;
         [procTabIdx + 9] = 0;
         SP = userSP;

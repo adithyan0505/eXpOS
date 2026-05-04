@@ -1,0 +1,169 @@
+alias funcNum R1;
+alias cpid R2;
+
+if(funcNum == SWAP_OUT) then
+    //select process to swap
+    alias ipid R3;
+    ipid = 3;
+    while(ipid < MAX_PROC_NUM) do 
+        if(([PROCESS_TABLE + ipid * 16 + 4] == WAIT_PROCESS) && ([PROCESS_TABLE + ipid * 16 + 6] != 1)) then
+            break;
+        endif;
+        ipid = ipid + 1;
+    endwhile;
+    if(ipid == MAX_PROC_NUM) then
+        ipid = 3;
+        while(ipid < MAX_PROC_NUM) do 
+            if(([PROCESS_TABLE + ipid * 16 + 4] == WAIT_SEMAPHORE) && ([PROCESS_TABLE + ipid * 16 + 6] != 1)) then
+                break;
+            endif;
+            ipid = ipid + 1;
+        endwhile;
+    endif;
+    alias swapped_pid R4;
+    swapped_pid = ipid;
+    if(ipid == MAX_PROC_NUM) then
+        ipid = 3;
+        swapped_pid = -1;
+        alias procTab R5;
+        while(ipid < MAX_PROC_NUM) do 
+            procTab = PROCESS_TABLE + ipid * 16;
+            alias state R8;
+            state = [procTab + 4];
+            if((state != RUNNING) && (state != TERMINATED) && (state != ALLOCATED) && ([procTab + 6] != 1)) then
+                if((swapped_pid == -1) || ([procTab] > [PROCESS_TABLE + swapped_pid * 16])) then
+                    swapped_pid = ipid;
+                endif;
+            endif;
+            ipid = ipid + 1;
+        endwhile;
+    endif;
+    if(swapped_pid == -1) then
+        [SYSTEM_STATUS_TABLE + 5] = 0;
+        return;
+    endif;
+
+    //set tick to 0
+    [PROCESS_TABLE + swapped_pid * 16] = 0;
+
+    alias ptbr R5;
+    ptbr = [PROCESS_TABLE + swapped_pid * 16 + 14];
+    //release code pages
+    R6 = 0;
+    while(R6 < 4) do 
+        if([ptbr + 8 + 2*R6] != -1) then
+            multipush(R1,R2,R3,R4,R5,R6);
+            R1 = RELEASE_PAGE; R2 = [ptbr + 8 + 2*R6];
+            call MEMORY_MANAGER;
+            multipop(R1,R2,R3,R4,R5,R6);
+            [ptbr + 8 + 2*R6] = -1;
+            [ptbr + 8 + 2*R6 + 1] = "0000";
+        endif;
+        R6 = R6 + 1;
+    endwhile;
+
+    R6 = 2;
+    while(R6 < 10) do 
+        alias pte R7;
+        pte = ptbr + 2 * R6;
+
+        if(R6 < 4 || R6 > 7) then
+            //release user stack and unshared heap pages
+            if(([pte] != -1) && ((R6 > 7) || ([MEMORY_FREE_LIST + [pte]] == 1))) then
+                multipush(R1,R2,R3,R4,R5,R6,R7);
+                R1 = GET_SWAP_BLOCK;
+                call MEMORY_MANAGER;
+                multipop(R1,R2,R3,R4,R5,R6,R7);
+
+                [DISK_MAP_TABLE + 10 * swapped_pid + R6] = R0;
+
+                multipush(R1,R2,R3,R4,R5,R6,R7);
+                R1 = DISK_STORE; R2 = cpid; R3 = [pte]; R4 = R0;
+                call DEVICE_MANAGER;
+                multipop(R1,R2,R3,R4,R5,R6,R7);
+
+                multipush(R1,R2,R3,R4,R5,R6,R7);
+                R1 = RELEASE_PAGE; R2 = [pte];
+                call MEMORY_MANAGER;
+                multipop(R1,R2,R3,R4,R5,R6,R7);
+                [pte] = -1;
+                [pte + 1] = "0000";
+            endif;
+        endif;
+        R6 = R6 + 1;
+    endwhile;
+
+    //set SWAP_FLAG
+    [PROCESS_TABLE + swapped_pid * 16 + 6] = 1;
+
+    //increment SWAP_COUNT
+    [SYSTEM_STATUS_TABLE + 4] = [SYSTEM_STATUS_TABLE + 4] + 1;
+endif;
+
+if(funcNum == SWAP_IN) then
+    alias ipid R3;
+    alias swapped_pid R4;
+    ipid = 0;
+    swapped_pid = -1;
+    alias procTab R5;
+    while(ipid < MAX_PROC_NUM) do 
+        procTab = PROCESS_TABLE + ipid * 16;
+        if(([procTab + 6] == 1) && ([procTab + 4] == READY)) then
+            if((swapped_pid == -1) || ([procTab] > [PROCESS_TABLE + swapped_pid * 16])) then
+                swapped_pid = ipid;
+            endif;
+        endif;
+        ipid = ipid + 1;
+    endwhile;
+    if(swapped_pid == -1) then
+        [SYSTEM_STATUS_TABLE + 5] = 0;
+        return;
+    endif;
+    
+
+    procTab = PROCESS_TABLE + swapped_pid * 16;
+    [procTab] = 0;
+
+    alias i R3;
+    i = 2;
+    alias ptbr R6;
+    ptbr = [procTab + 14];
+    while(i < 10) do 
+        alias dmt R7;
+        dmt = DISK_MAP_TABLE + swapped_pid * 10 + i;
+        if([dmt] != -1) then
+            if(i < 4 || i > 7) then
+                multipush(R1,R2,R3,R4,R5,R6,R7);
+                R1 = GET_FREE_PAGE;
+                call MEMORY_MANAGER;
+                multipop(R1,R2,R3,R4,R5,R6,R7);
+
+                [ptbr + 2 * i] = R0;
+                [ptbr + 2 * i + 1] = "0110"; 
+
+                multipush(R1,R2,R3,R4,R5,R6,R7);
+                R1 = DISK_LOAD; R2 = cpid; R4 = [dmt]; R3 = R0; 
+                call DEVICE_MANAGER;
+                multipop(R1,R2,R3,R4,R5,R6,R7);
+
+                multipush(R1,R2,R3,R4,R5,R6,R7);
+                R1 = RELEASE_BLOCK; R2 = [dmt];
+                call MEMORY_MANAGER;
+                multipop(R1,R2,R3,R4,R5,R6,R7);
+                
+                [dmt] = -1;
+            endif;
+        endif;
+        i = i + 1;
+    endwhile;
+
+    //set SWAP_FLAG
+    [procTab + 6] = 0;
+
+    //decrement SWAP_COUNT
+    [SYSTEM_STATUS_TABLE + 4] = [SYSTEM_STATUS_TABLE + 4] - 1;
+endif;
+
+//reset paging status and return
+[SYSTEM_STATUS_TABLE + 5] = 0; //indicates scheduler to work normally
+return;

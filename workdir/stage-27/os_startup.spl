@@ -1,0 +1,117 @@
+// load IDLE code 
+loadi(69,11);
+// load module 7
+loadi(54,67);
+loadi(55,68);
+
+// set SP to (UAPN*512-1)
+SP = 77 * 512 - 1;
+
+// call boot module
+call BOOT_MODULE;
+
+// IDLE process (PID 0)
+
+// SETUP PAGE TABLE
+PTBR = PAGE_TABLE_BASE;
+PTLR = 10;
+//Library
+[PTBR+0] = -1;
+[PTBR+1] = "0000";
+[PTBR+2] = -1;
+[PTBR+3] = "0000";
+//Heap
+[PTBR+4] = -1;
+[PTBR+5] = "0000";
+[PTBR+6] = -1;
+[PTBR+7] = "0000";
+//Code
+[PTBR+8] = 69;
+[PTBR+9] = "0100";
+[PTBR+10] = -1;
+[PTBR+11] = "0000";
+[PTBR+12] = -1;
+[PTBR+13] = "0000";
+[PTBR+14] = -1;
+[PTBR+15] = "0000";
+//Stack
+[PTBR+16] = 70;
+[PTBR+17] = "0110";
+[PTBR+18] = -1;
+[PTBR+19] = "0000";
+
+// SETUP PROCESS TABLE
+//PID, UAPN, UPTR, KPTR, PTBR, PTLR, TICK, UID
+[PROCESS_TABLE+1] = IDLE_PROCESS;
+[PROCESS_TABLE+11] = 77;
+[PROCESS_TABLE+13] = 8*512;
+[PROCESS_TABLE+12] = 0;
+[PROCESS_TABLE+14] = PTBR;
+[PROCESS_TABLE+15] = PTLR;
+[PROCESS_TABLE+4] = RUNNING;
+[PROCESS_TABLE+0] = 0;
+[PROCESS_TABLE+3] = 0; 
+[PROCESS_TABLE+6] = 0;
+
+// set code entry point to ToS, SP to logical address of user stack
+[70 * 512] = [69 * 512 + 1];
+SP = 8 * 512;
+
+// Swapper Daemon (PID 15)
+
+// SETUP PAGE TABLE
+PTBR = PAGE_TABLE_BASE + SWAPPER_DAEMON * 20;
+PTLR = 10;
+//Library
+[PTBR+0] = -1;
+[PTBR+1] = "0000";
+[PTBR+2] = -1;
+[PTBR+3] = "0000";
+//Heap
+[PTBR+4] = -1;
+[PTBR+5] = "0000";
+[PTBR+6] = -1;
+[PTBR+7] = "0000";
+//Code
+[PTBR+8] = 69;
+[PTBR+9] = "0100";
+[PTBR+10] = -1;
+[PTBR+11] = "0000";
+[PTBR+12] = -1;
+[PTBR+13] = "0000";
+[PTBR+14] = -1;
+[PTBR+15] = "0000";
+//Stack
+[PTBR+16] = 81;
+[PTBR+17] = "0110";
+[PTBR+18] = -1;
+[PTBR+19] = "0000";
+
+// SETUP PROCESS TABLE
+alias procTab R1;
+procTab = PROCESS_TABLE + 15 * 16;
+//PID, UAPN, UPTR, KPTR, PTBR, PTLR, TICK, UID
+[procTab+1] = SWAPPER_DAEMON;
+[procTab+11] = 82;
+[procTab+13] = 8*512;
+[procTab+12] = 0;
+[procTab+14] = PTBR;
+[procTab+15] = PTLR;
+[procTab+4] = CREATED;
+[procTab+0] = 0;
+[procTab+3] = 0; 
+[procTab+6] = 0;
+
+// set code entry point to ToS, SP to logical address of user stack
+[81 * 512] = [69 * 512 + 1];
+
+// set pid in sst of current user process
+[SYSTEM_STATUS_TABLE + 1] = IDLE_PROCESS;
+//set current user as kernel
+[SYSTEM_STATUS_TABLE] = KERNEL;
+
+PTBR = PAGE_TABLE_BASE;
+PTLR = 10;
+
+// swtich to user mode
+ireturn;
