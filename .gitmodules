@@ -1,0 +1,3 @@
+[submodule "myexpos"]
+	path = myexpos
+	url = https://github.com/adithyan0505/eXpOS
